@@ -4325,3 +4325,144 @@ $textonebuy
     }
     return rx_pf_result('completed');
 }
+
+// ---- T126: referral signup gift, shared by /start and the get_gift_start button ----
+if (!function_exists('rxReferralGiftPayout')) {
+    // Pays the signup gift for an invitee AND his inviter exactly once.
+    // Same body as the "get_gift_start" button handler (live panel_dispatch.php),
+    // extracted so both /start and the button share one path. Invariant: the atomic
+    // "UPDATE ... WHERE get_gift = 0" guard makes any caller idempotent.
+    // $notifyInvitee=true -> sends the "gift activated" DM to the invitee;
+    // pass false for silent settlement (cron/backfill) so old invitees are not pinged.
+    function rxReferralGiftPayout($inviteeId, $notifyInvitee = true)
+    {
+        global $pdo, $setting, $datatextbot, $user, $username, $porsantreport, $keyboard;
+        $from_id = $inviteeId;
+        $inviteRow = select("user", "*", "id", $inviteeId, "select", ['cache' => false]);
+        if (!is_array($inviteRow)) {
+            return ['status' => false, 'reason' => 'no_user'];
+        }
+        $inviterId = $inviteRow['affiliates'] ?? '';
+        if (!userExists($inviterId)) {
+            if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_not_affiliate_of_anyone'] ?? "no_affiliate", $keyboard, 'HTML');
+            return ['status' => false, 'reason' => 'no_inviter'];
+        }
+        $reagent = select("reagent_report", "*", "user_id", $from_id, "select", ['cache' => false]);
+        if (!$reagent) {
+            $affiliateId = intval($inviterId);
+            if ($affiliateId && userExists($affiliateId)) {
+                $stmt = $pdo->prepare("INSERT INTO reagent_report (user_id, get_gift, time, reagent)
+                                       VALUES (:user_id, :get_gift, :time, :reagent)
+                                       ON DUPLICATE KEY UPDATE reagent = VALUES(reagent), get_gift = VALUES(get_gift), time = VALUES(time)");
+                $stmt->execute([
+                    ':user_id' => $from_id,
+                    ':get_gift' => 0,
+                    ':time' => date('Y/m/d H:i:s'),
+                    ':reagent' => $affiliateId,
+                ]);
+                if (function_exists('clearSelectCache')) {
+                    clearSelectCache('reagent_report');
+                }
+                $reagent = select("reagent_report", "*", "user_id", $from_id, "select", ['cache' => false]);
+            }
+            if (!$reagent) {
+                if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_not_affiliate_of_anyone'] ?? "no_affiliate", $keyboard, 'HTML');
+                return ['status' => false, 'reason' => 'no_reagent'];
+            }
+        }
+            $affiliatesGate = select("affiliates", "*", null, null, "select");
+            if (($affiliatesGate['require_phone_verified'] ?? '') === 'on_require_phone' && ($inviteRow['number'] ?? 'none') !== 'confrim number by admin') {
+                if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_phone_required'] ?? "📞 برای دریافت هدیه عضویت، ابتدا باید شماره موبایل خود را تایید کنید.", $keyboard, 'HTML');
+                return ['status' => false, 'reason' => 'aborted'];
+            }
+            $minAgeHours = (int) ($affiliatesGate['min_account_age_hours'] ?? 0);
+            if ($minAgeHours > 0 && !empty($inviteRow['register']) && $inviteRow['register'] !== 'none') {
+                $accountAgeHours = (time() - (int) $inviteRow['register']) / 3600;
+                if ($accountAgeHours < $minAgeHours) {
+                    if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_account_too_new'] ?? "⏳ حساب شما هنوز به اندازه کافی قدیمی نیست، کمی بعد دوباره تلاش کنید.", $keyboard, 'HTML');
+                    return ['status' => false, 'reason' => 'aborted'];
+                }
+            }
+            $referrerIdForCap = $reagent['reagent'];
+            $dailyCap = (int) ($affiliatesGate['daily_referral_cap'] ?? 0);
+            $monthlyCap = (int) ($affiliatesGate['monthly_referral_cap'] ?? 0);
+            if ($dailyCap > 0 || $monthlyCap > 0) {
+                if ($dailyCap > 0) {
+                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM affiliate_referral_claims WHERE reagent = :reagent AND claim_date = :today");
+                    $stmt->execute([':reagent' => $referrerIdForCap, ':today' => date('Y-m-d')]);
+                    if ((int) $stmt->fetchColumn() >= $dailyCap) {
+                        if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_cap_reached'] ?? "📛 سقف روزانه هدیه معرفی برای این معرف پر شده است.", $keyboard, 'HTML');
+                        return ['status' => false, 'reason' => 'aborted'];
+                    }
+                }
+                if ($monthlyCap > 0) {
+                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM affiliate_referral_claims WHERE reagent = :reagent AND claim_date >= :monthstart");
+                    $stmt->execute([':reagent' => $referrerIdForCap, ':monthstart' => date('Y-m-01')]);
+                    if ((int) $stmt->fetchColumn() >= $monthlyCap) {
+                        if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_cap_reached'] ?? "📛 سقف ماهانه هدیه معرفی برای این معرف پر شده است.", $keyboard, 'HTML');
+                        return ['status' => false, 'reason' => 'aborted'];
+                    }
+                }
+            }
+            $stmt = $pdo->prepare("UPDATE reagent_report SET get_gift = 1 WHERE user_id = :user_id AND get_gift = 0");
+            $stmt->execute([':user_id' => $from_id]);
+            if ($stmt->rowCount() === 0) {
+                if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_gift_already_received'] ?? "<b>⛔ شما قبلاً هدیه عضویت را دریافت کرده‌اید.</b>\nاین هدیه فقط <b>یک‌بار</b> قابل فعال‌سازی است.", $keyboard, 'HTML');
+                return ['status' => false, 'reason' => 'aborted'];
+            }
+            $claimStmt = $pdo->prepare("INSERT IGNORE INTO affiliate_referral_claims (reagent, invitee_id, claim_type, claim_date, time) VALUES (:reagent, :invitee_id, 'start_gift', :claim_date, :time)");
+            $claimStmt->execute([
+                ':reagent' => $referrerIdForCap,
+                ':invitee_id' => $from_id,
+                ':claim_date' => date('Y-m-d'),
+                ':time' => date('Y/m/d H:i:s'),
+            ]);
+            $reagent['get_gift'] = true;
+            $price_gift_Start = select("affiliates", "*", null, null, "select");
+            $price_gift_Start = intval($price_gift_Start['price_Discount']) / 2;
+            $useraffiliates = select("user", "*", 'id', $reagent['reagent'], "select");
+            if (function_exists('balance_atomic_credit') && $price_gift_Start > 0) {
+                $__giftOkRef = balance_atomic_credit($reagent['reagent'], $price_gift_Start);
+                if ($__giftOkRef && function_exists('wallet_ledger_record')) {
+                    wallet_ledger_record($reagent['reagent'], 'credit', $price_gift_Start, 'referral_gift', 'هدیه عضویت زیرمجموعه', null, 'user', (string)$from_id);
+                }
+                $__giftOkUser = balance_atomic_credit($from_id, $price_gift_Start);
+                if ($__giftOkUser && function_exists('wallet_ledger_record')) {
+                    wallet_ledger_record($from_id, 'credit', $price_gift_Start, 'referral_gift', 'هدیه عضویت', null, 'user', (string)$reagent['reagent']);
+                }
+            } else {
+                $Balance_add_regent = $useraffiliates['Balance'] + $price_gift_Start;
+                update("user", "Balance", $Balance_add_regent, "id", $reagent['reagent']);
+                $Balance_add_user = $inviteRow['Balance'] + $price_gift_Start;
+                update("user", "Balance", $Balance_add_user, "id", $from_id);
+            }
+            $Balance_add_regent = select("user", "Balance", "id", $reagent['reagent'], "select", ['cache' => false])['Balance'] ?? ($useraffiliates['Balance'] + $price_gift_Start);
+            $Balance_add_user = select("user", "Balance", "id", $from_id, "select", ['cache' => false])['Balance'] ?? ($inviteRow['Balance'] + $price_gift_Start);
+            $addbalancediscount = number_format($price_gift_Start, 0);
+            sendmessage($reagent['reagent'], $datatextbot['dyn_affiliates_extra_gift_credited_inviter'] ?? "🎉 یک نفر با معرفی شما وارد شد! هدیه به حساب شما واریز شد.", null, 'html');
+            if ($notifyInvitee) sendmessage($from_id, $datatextbot['dyn_affiliates_extra_gift_activated'] ?? "🎉 هدیه عضویت برای شما فعال شد!", null, 'html');
+            $rxFmtUserBalanceBefore = number_format((float)$inviteRow['Balance'], 0);
+            $rxFmtUserBalanceAfter = number_format((float)$Balance_add_user, 0);
+            $rxFmtReagentBalanceBefore = number_format((float)$useraffiliates['Balance'], 0);
+            $rxFmtReagentBalanceAfter = number_format((float)$Balance_add_regent, 0);
+            $report_join_gift = "🎁 پرداخت هدیه عضویت
+        <blockquote> -آیدی عددی : $from_id</blockquote>
+        <blockquote> - نام کاربری : @$username</blockquote>
+        <blockquote> - آیدی عددی معرف : {$reagent['reagent']}</blockquote>
+        <blockquote> - موجودی زیرمجموعه قبل از هدیه : {$rxFmtUserBalanceBefore}</blockquote>
+        <blockquote> - موجودی زیرمجموعه بعد از هدیه : {$rxFmtUserBalanceAfter}</blockquote>
+        <blockquote>  - موجودی معرف قبل از هدیه : {$rxFmtReagentBalanceBefore}</blockquote>
+        <blockquote> - موجودی معرف بعد از هدیه : {$rxFmtReagentBalanceAfter}</blockquote>
+         ";
+            if (strlen($setting['Channel_Report'] ?? '') > 0) {
+                telegram('sendmessage', [
+                    'chat_id' => $setting['Channel_Report'],
+                    'message_thread_id' => $porsantreport,
+                    'text' => $report_join_gift,
+                    'parse_mode' => "HTML"
+                ]);
+            }
+        return ['status' => true, 'inviter' => $reagent['reagent'], 'half' => $price_gift_Start];
+    }
+}
+
