@@ -1205,7 +1205,7 @@ if ($text == "version") {
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . rxServiceListStatusSuffix($row) . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . rxServiceListStatusSuffix($row) . "✨",
                     'callback_data' => "quickview_" . $row['id_invoice']
                 ],
             ];
@@ -1214,7 +1214,7 @@ if ($text == "version") {
         foreach ($serviceRows as $row) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . rxServiceListStatusSuffix($row) . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . rxServiceListStatusSuffix($row) . "✨",
                     'callback_data' => "quickview_" . $row['id_invoice']
                 ],
             ];
@@ -1268,7 +1268,7 @@ if ($text == "version") {
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . rxServiceListStatusSuffix($row) . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . rxServiceListStatusSuffix($row) . "✨",
                     'callback_data' => "quickview_" . $row['id_invoice']
                 ],
             ];
@@ -1277,7 +1277,7 @@ if ($text == "version") {
         foreach ($serviceRows as $row) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . rxServiceListStatusSuffix($row) . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . rxServiceListStatusSuffix($row) . "✨",
                     'callback_data' => "quickview_" . $row['id_invoice']
                 ],
             ];
@@ -1331,7 +1331,7 @@ if ($text == "version") {
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . rxServiceListStatusSuffix($row) . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . rxServiceListStatusSuffix($row) . "✨",
                     'callback_data' => "quickview_" . $row['id_invoice']
                 ],
             ];
@@ -1340,7 +1340,7 @@ if ($text == "version") {
         foreach ($serviceRows as $row) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . rxServiceListStatusSuffix($row) . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . rxServiceListStatusSuffix($row) . "✨",
                     'callback_data' => "quickview_" . $row['id_invoice']
                 ],
             ];
@@ -1623,7 +1623,7 @@ if ($text == "version") {
                     $data = " | {$row['note']}";
                 $keyboardlists['inline_keyboard'][] = [
                     [
-                        'text' => "✨" . $row['username'] . $data . rxServiceListStatusSuffix($row) . "✨",
+                        'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . rxServiceListStatusSuffix($row) . "✨",
                         'callback_data' => "quickview_" . $row['id_invoice']
                     ],
                 ];
@@ -1632,7 +1632,7 @@ if ($text == "version") {
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $keyboardlists['inline_keyboard'][] = [
                     [
-                        'text' => "✨" . $row['username'] . rxServiceListStatusSuffix($row) . "✨",
+                        'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . rxServiceListStatusSuffix($row) . "✨",
                         'callback_data' => "quickview_" . $row['id_invoice']
                     ],
                 ];
