@@ -1839,7 +1839,7 @@ $text_porsant
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . "✨",
                     'callback_data' => "extend_" . $row['id_invoice']
                 ],
             ];
@@ -1848,7 +1848,7 @@ $text_porsant
         while ($row = mysqli_fetch_assoc($result)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . "✨",
                     'callback_data' => "extend_" . $row['id_invoice']
                 ],
             ];
@@ -1899,7 +1899,7 @@ $text_porsant
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . "✨",
                     'callback_data' => "extend_" . $row['id_invoice']
                 ],
             ];
@@ -1908,7 +1908,7 @@ $text_porsant
         while ($row = mysqli_fetch_assoc($result)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . "✨",
                     'callback_data' => "extend_" . $row['id_invoice']
                 ],
             ];
@@ -1960,7 +1960,7 @@ $text_porsant
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . $data . "✨",
                     'callback_data' => "extend_" . $row['id_invoice']
                 ],
             ];
@@ -1969,7 +1969,7 @@ $text_porsant
         while ($row = mysqli_fetch_assoc($result)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
+                    'text' => "✨" . (trim((string)($row['name_product'] ?? '')) !== '' ? $row['name_product'] : $row['username']) . "✨",
                     'callback_data' => "extend_" . $row['id_invoice']
                 ],
             ];
