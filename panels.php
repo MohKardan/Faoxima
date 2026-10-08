@@ -811,7 +811,7 @@ class ManagePanel
         }
         return $Output;
     }
-    function DataUser($name_panel, $username)
+    function DataUser($name_panel, $username, $client_type = 'links')
     {
         $Output = array();
         global $pdo, $domainhosts;
@@ -933,9 +933,13 @@ class ManagePanel
                     $pasarguardExpireTs = is_numeric($UsernameData['expire']) ? (int) $UsernameData['expire'] : (int) strtotime((string) $UsernameData['expire']);
                 }
                 $pasarguardLinks = [];
-                $pasarguardLinksResponse = pasarguardGetSubscriptionLinks($username, $Get_Data_Panel['name_panel']);
+                $pasarguardSubscriptionUrl = (string)($UsernameData['subscription_url'] ?? '');
+                $pasarguardLinksResponse = pasarguardGetSubscriptionLinks($username, $Get_Data_Panel['name_panel'], $client_type);
                 if (empty($pasarguardLinksResponse['error']) && !empty($pasarguardLinksResponse['links'])) {
                     $pasarguardLinks = $pasarguardLinksResponse['links'];
+                    if (!empty($pasarguardLinksResponse['subscription_url'])) {
+                        $pasarguardSubscriptionUrl = (string)$pasarguardLinksResponse['subscription_url'];
+                    }
                 }
                 $Output = array(
                     'status' => $UsernameData['status'],
@@ -945,7 +949,7 @@ class ManagePanel
                     'online_at' => $UsernameData['online_at'],
                     'used_traffic' => $UsernameData['used_traffic'],
                     'links' => $pasarguardLinks,
-                    'subscription_url' => $UsernameData['subscription_url'],
+                    'subscription_url' => $pasarguardSubscriptionUrl,
                     'sub_updated_at' => $UsernameData['sub_updated_at'] ?? null,
                     'sub_last_user_agent' => $UsernameData['sub_last_user_agent'] ?? null,
                     'uuid' => $UsernameData['proxies'] ?? null,

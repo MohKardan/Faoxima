@@ -17,8 +17,11 @@ export async function configFileUrl(username, index = 0) {
         dlToken = getToken();
     }
     if (!dlToken) return null;
+    const platform = String((window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.platform) || '').toLowerCase();
+    const clientType = platform === 'ios' ? 'sing_box' : 'xray';
     const qs = new URLSearchParams({
         actions: 'config_file',
+        client_type: clientType,
         username: String(username || ''),
         i: String(index),
         dl_token: dlToken,

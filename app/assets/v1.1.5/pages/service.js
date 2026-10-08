@@ -1024,7 +1024,8 @@ async function showConfigSection($body, info, username) {
     scrollToConfig($body);
 
     try {
-        const res = await call('service_configs', { params: { username } });
+        const clientType = String(tgPlatform() || '').toLowerCase() === 'ios' ? 'sing_box' : 'xray';
+        const res = await call('service_configs', { params: { username, client_type: clientType } });
         const obj = res?.obj || {};
         const configs = Array.isArray(obj.configs) ? obj.configs : [];
 

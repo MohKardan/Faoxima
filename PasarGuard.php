@@ -206,8 +206,10 @@ function pasarguardGetUser($username_account, $location)
     return pasarguardRequest($panel, 'GET', '/api/user/' . $username_account);
 }
 
-function pasarguardGetSubscriptionLinks($username_account, $location)
+function pasarguardGetSubscriptionLinks($username_account, $location, $client_type = 'links')
 {
+    $allowedTypes = ['links', 'xray', 'sing_box', 'clash_meta'];
+    $clientType = in_array($client_type, $allowedTypes, true) ? $client_type : 'links';
     $userResponse = pasarguardGetUser($username_account, $location);
     if (!empty($userResponse['error'])) {
         return $userResponse;
@@ -223,17 +225,49 @@ function pasarguardGetSubscriptionLinks($username_account, $location)
     if ($panel === null) {
         return ["error" => "Panel configuration not found for the requested location."];
     }
-    $subUrl = rtrim($panel['url_panel'], '/') . '/' . ltrim($userData['subscription_url'], '/');
-    $req = new CurlRequest(rtrim($subUrl, '/') . '/links');
-    $req->setHeaders(['accept: text/plain']);
-    $response = $req->get();
+    $baseUrl = rtrim($panel['url_panel'], '/') . '/' . ltrim($userData['subscription_url'], '/');
+    $request = function ($suffix, $accept) use ($baseUrl) {
+        $req = new CurlRequest(rtrim($baseUrl, '/') . '/' . $suffix);
+        $req->setHeaders(['accept: ' . $accept]);
+        return $req->get();
+    };
+    $suffix = $clientType === 'links' ? 'links' : $clientType;
+    $accept = $clientType === 'links' ? 'text/plain' : 'application/json, text/plain;q=0.9, */*;q=0.1';
+    $response = $request($suffix, $accept);
     if (!empty($response['error']) || empty($response['status']) || $response['status'] >= 400) {
-        return ["error" => "Unable to fetch subscription links."];
+        if ($clientType === 'links') {
+            return ["error" => "Unable to fetch subscription links."];
+        }
+        $clientType = 'links';
+        $suffix = 'links';
+        $response = $request($suffix, 'text/plain');
+        if (!empty($response['error']) || empty($response['status']) || $response['status'] >= 400) {
+            return ["error" => "Unable to fetch subscription links."];
+        }
     }
-    $links = array_values(array_filter(array_map('trim', explode("\n", (string) $response['body'])), function ($line) {
-        return $line !== '';
-    }));
-    return ["status" => true, "links" => $links];
+    $body = trim((string) ($response['body'] ?? ''));
+    $links = [];
+    $decoded = $body === '' ? null : json_decode($body, true);
+    if ($clientType !== 'links' && is_array($decoded) && json_last_error() === JSON_ERROR_NONE) {
+        if (array_is_list($decoded)) {
+            foreach ($decoded as $item) {
+                if (is_array($item)) {
+                    $links[] = json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                }
+            }
+        } else {
+            $links[] = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+    }
+    if (empty($links)) {
+        $links = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $body) ?: []), function ($line) {
+            return $line !== '';
+        }));
+    }
+    if (empty($links)) {
+        return ["error" => "Subscription response was empty."];
+    }
+    return ["status" => true, "links" => $links, "subscription_url" => rtrim($baseUrl, '/') . '/' . $suffix, "client_type" => $clientType];
 }
 
 function pasarguardGetUsersByStatus($location, $status)
