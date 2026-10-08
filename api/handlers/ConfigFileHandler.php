@@ -61,6 +61,10 @@ final class ConfigFileHandler extends BaseHandler
         if ($index < 0) {
             $index = 0;
         }
+        $clientType = strtolower((string)(FaoximaInput::nullableString($this->data, 'client_type') ?? 'links'));
+        if (!in_array($clientType, ['links', 'xray', 'sing_box', 'clash_meta'], true)) {
+            $clientType = 'links';
+        }
 
         $svcHandler = new ServiceHandler($this->user, $this->data);
         $invoice = $svcHandler->lookupInvoice($username);
@@ -68,7 +72,7 @@ final class ConfigFileHandler extends BaseHandler
             FaoximaResponse::notFound('Service not found');
         }
 
-        $payload = $svcHandler->buildPayloadFromInvoice($invoice);
+        $payload = $svcHandler->buildPayloadFromInvoice($invoice, $clientType);
         if ($payload === null) {
             FaoximaResponse::fail(502, 'Service data unavailable');
         }
@@ -105,7 +109,13 @@ final class ConfigFileHandler extends BaseHandler
                 }
             }
             $link = $links[$index] ?? null;
-            if ($link !== null && function_exists('xui_wg_conf_from_link')) {
+            if ($link !== null && in_array($clientType, ['xray', 'sing_box'], true)) {
+                $decoded = json_decode($link, true);
+                $content = is_array($decoded)
+                    ? json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    : $link;
+                $filename = $clientType === 'xray' ? 'xray-' . ($index + 1) . '.json' : 'sing-box.json';
+            } elseif ($link !== null && function_exists('xui_wg_conf_from_link')) {
                 $wg = xui_wg_conf_from_link($link);
                 if (is_array($wg)) {
                     $content = $wg['conf'];

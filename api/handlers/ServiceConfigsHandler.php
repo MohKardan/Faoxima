@@ -24,7 +24,11 @@ final class ServiceConfigsHandler extends BaseHandler
             FaoximaResponse::notFound('Service not found');
         }
 
-        $payload = $svcHandler->buildPayloadFromInvoice($invoice);
+        $clientType = strtolower((string)(FaoximaInput::nullableString($this->data, 'client_type') ?? 'links'));
+        if (!in_array($clientType, ['links', 'xray', 'sing_box', 'clash_meta'], true)) {
+            $clientType = 'links';
+        }
+        $payload = $svcHandler->buildPayloadFromInvoice($invoice, $clientType);
         if ($payload === null) {
             FaoximaResponse::fail(502, 'Service data unavailable');
         }

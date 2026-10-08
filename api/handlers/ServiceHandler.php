@@ -22,7 +22,11 @@ final class ServiceHandler extends BaseHandler
             FaoximaResponse::notFound('Service not found');
         }
 
-        $payload = $this->buildPayloadFromInvoice($invoice);
+        $clientType = strtolower((string)(FaoximaInput::nullableString($this->data, 'client_type') ?? 'links'));
+        if (!in_array($clientType, ['links', 'xray', 'sing_box', 'clash_meta'], true)) {
+            $clientType = 'links';
+        }
+        $payload = $this->buildPayloadFromInvoice($invoice, $clientType);
         if ($payload === null) {
             FaoximaResponse::fail(200, 'اطلاعات سرویس در حال حاضر از پنل در دسترس نیست؛ لطفاً چند لحظه دیگر دوباره تلاش کنید.');
         }
@@ -48,7 +52,7 @@ final class ServiceHandler extends BaseHandler
     }
 
 
-    public function buildPayloadFromInvoice(array $invoice): ?array
+    public function buildPayloadFromInvoice(array $invoice, string $client_type = 'links'): ?array
     {
         $stock = $this->resolveStockRow($invoice);
         if ($stock !== null) {
@@ -78,7 +82,7 @@ final class ServiceHandler extends BaseHandler
 
         if ($remote === null) {
             $managePanel = new ManagePanel();
-            $remote = $managePanel->DataUser($invoice['Service_location'], $invoice['username']);
+            $remote = $managePanel->DataUser($invoice['Service_location'], $invoice['username'], $client_type);
 
             if (is_array($remote) && function_exists('rx_redis_is_active') && rx_redis_is_active()) {
                 $rxPanelEncoded = json_encode($remote, JSON_UNESCAPED_UNICODE);
