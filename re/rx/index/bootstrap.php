@@ -868,6 +868,17 @@ if ($rxAntispamStatus === '1' && !in_array((string)$from_id, $admin_ids_str, tru
     }
 }
 
+// T130 (MohKardan/Faryan-VPN#14): channel-member gift entry points — the "/start chgift"
+// deep link from the channel, the "chgift_check" re-check button and the menu button.
+// Placed before the /start payload block and the rules gate so the deep link is one tap.
+if (function_exists('rxChannelGiftClaim') && ($setting['Bot_Status'] ?? '') !== 'botstatusoff'
+    && ((is_string($text) && trim($text) === '/start chgift')
+        || $datain === 'chgift_check'
+        || (is_string($text) && trim($text) === '🎁 هدیه اعضای کانال'))) {
+    rxChannelGiftClaim($from_id, $user);
+    return;
+}
+
 $rxStartLanding = false;
 if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage") {
     $affiliatesid = explode(" ", $text)[1];
