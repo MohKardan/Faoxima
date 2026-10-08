@@ -908,6 +908,12 @@ if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage
             if (function_exists('clearSelectCache')) {
                 clearSelectCache('reagent_report');
             }
+            // T126: pay the signup gift automatically, right where the referral is recorded.
+            // rxReferralGiftPayout() is idempotent (atomic get_gift guard), so a later
+            // button press only answers "already received".
+            if (function_exists('rxReferralGiftPayout')) {
+                rxReferralGiftPayout($from_id, true);
+            }
         } else {
             if (!is_numeric($affiliatesid) && preg_match('/^[A-Za-z0-9_-]{1,64}$/', (string)$affiliatesid) && strpos((string)$affiliatesid, 'manageuser_') !== 0) {
                 try {
