@@ -4466,3 +4466,161 @@ if (!function_exists('rxReferralGiftPayout')) {
     }
 }
 
+// T130 (MohKardan/Faryan-VPN#14, owner-approved live patch 2026-10-07):
+// one-time 10 GB / 10-day gift for members of @FaryanVPN_Free.
+// - One claim per Telegram account: channel_gift_claim.user_id is the primary key and is
+//   reserved with INSERT IGNORE before anything is created; a failed creation releases it.
+// - No device limit and no total cap (owner decision): the service is created through the
+//   'usertest' path, which skips hwid_limit and follows the panel's on_hold_test setting.
+// - Membership is checked live with getChatMember; the bot is an administrator of the channel.
+// Entry points are in re/rx/index/bootstrap.php, just before the /start payload block.
+if (!function_exists('rxChannelGiftClaim')) {
+    function rxChannelGiftClaim($from_id, $user)
+    {
+        global $pdo, $ManagePanel, $setting, $keyboard, $username, $textbotlang,
+            $reporttest, $errorreport, $callback_query_id;
+
+        $channel    = '@FaryanVPN_Free';
+        $channelUrl = 'https://t.me/FaryanVPN_Free';
+        $giftName   = '🎁 هدیه کانال — ۱۰ گیگ | ۱۰ روزه';
+        $giftGb     = 10;
+        $giftDays   = 10;
+        $uid        = (string) $from_id;
+
+        if (!empty($callback_query_id)) {
+            @telegram('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'cache_time' => 0]);
+        }
+
+        $alreadyText = "✅ هدیهٔ اعضای کانال قبلاً برای شما فعال شده است.\n\nسرویس هدیه را در «🛍 سرویس های من» ببینید.";
+        $seen = $pdo->prepare("SELECT 1 FROM channel_gift_claim WHERE user_id = :u LIMIT 1");
+        $seen->execute([':u' => $uid]);
+        if ($seen->fetchColumn() !== false) {
+            sendmessage($from_id, $alreadyText, $keyboard, 'HTML');
+            return ['status' => false, 'reason' => 'already_claimed'];
+        }
+
+        $checkKb = json_encode(['inline_keyboard' => [
+            [['text' => '📢 عضویت در کانال', 'url' => $channelUrl]],
+            [['text' => '✅ عضو شدم', 'callback_data' => 'chgift_check']],
+        ]]);
+        $member = telegram('getChatMember', ['chat_id' => $channel, 'user_id' => $from_id]);
+        if (empty($member['ok'])) {
+            sendmessage($from_id, "⚠️ بررسی عضویت در کانال الان ممکن نشد؛ چند لحظه بعد دکمهٔ «✅ عضو شدم» را بزنید.", $checkKb, 'HTML');
+            return ['status' => false, 'reason' => 'check_failed'];
+        }
+        $mstatus = (string) ($member['result']['status'] ?? '');
+        $isMember = in_array($mstatus, ['member', 'administrator', 'creator'], true)
+            || ($mstatus === 'restricted' && !empty($member['result']['is_member']));
+        if (!$isMember) {
+            sendmessage($from_id, "🎁 <b>هدیهٔ اعضای کانال: ۱۰ گیگ، ۱۰ روزه، رایگان</b>\n\nبرای دریافت، اول عضو کانال شوید و بعد دکمهٔ «✅ عضو شدم» را بزنید.", $checkKb, 'HTML');
+            return ['status' => false, 'reason' => 'not_member'];
+        }
+
+        $reserve = $pdo->prepare("INSERT IGNORE INTO channel_gift_claim (user_id, claimed_at, status) VALUES (:u, :t, 'reserved')");
+        $reserve->execute([':u' => $uid, ':t' => time()]);
+        if ($reserve->rowCount() === 0) {
+            sendmessage($from_id, $alreadyText, $keyboard, 'HTML');
+            return ['status' => false, 'reason' => 'already_claimed'];
+        }
+        $release = function () use ($pdo, $uid) {
+            $pdo->prepare("DELETE FROM channel_gift_claim WHERE user_id = :u AND status = 'reserved'")->execute([':u' => $uid]);
+        };
+        $busyText = "⚠️ ساخت سرویس هدیه الان ممکن نشد؛ چند دقیقه بعد دوباره امتحان کنید.";
+        $randomString = null;
+
+        try {
+        $panel = select("marzban_panel", "*", "TestAccount", "ONTestAccount", "select");
+        if (!is_array($panel) || ($panel['status'] ?? '') === 'disable') {
+            $release();
+            sendmessage($from_id, $busyText, $keyboard, 'HTML');
+            return ['status' => false, 'reason' => 'no_panel'];
+        }
+        if (!($ManagePanel instanceof ManagePanel)) {
+            $ManagePanel = new ManagePanel();
+        }
+
+        $randomString = bin2hex(random_bytes(4));
+        $username_ac = strtolower(generateUsername($from_id, $panel['MethodUsername'], $user['username'] ?? '', $randomString, '', $panel['namecustom'] ?? '', $user['namecustom'] ?? ''));
+        $existing = $ManagePanel->DataUser($panel['name_panel'], $username_ac);
+        if (isset($existing['username']) || rxTableValueExists('invoice', 'username', $username_ac)) {
+            $username_ac = rand(1000000, 9999999) . '-' . $username_ac;
+        }
+
+        $pdo->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username, time_sell, Service_location, name_product, price_product, Volume, Volume_unit, Service_time, Status, notifctions) VALUES (:uid, :inv, :un, :ts, :loc, :name, '0', :vol, 'GB', :days, 'active', :notif)")
+            ->execute([
+                ':uid' => $uid, ':inv' => $randomString, ':un' => $username_ac, ':ts' => (string) time(),
+                ':loc' => $panel['name_panel'], ':name' => $giftName, ':vol' => (string) $giftGb,
+                ':days' => (string) $giftDays, ':notif' => json_encode(['volume' => false, 'time' => false]),
+            ]);
+
+        $out = $ManagePanel->createUser($panel['name_panel'], 'usertest', $username_ac, [
+            'expire'     => time() + $giftDays * 86400,
+            'data_limit' => $giftGb * 1073741824,
+            'from_id'    => $from_id,
+            'username'   => $username_ac,
+            'type'       => 'usertest',
+        ]);
+        if (empty($out['username'])) {
+            update("invoice", "Status", "Unsuccessful", "id_invoice", $randomString);
+            $release();
+            sendmessage($from_id, $busyText, $keyboard, 'HTML');
+            if (strlen($setting['Channel_Report'] ?? '') > 0) {
+                $err = is_scalar($out['msg'] ?? null) ? (string) $out['msg'] : json_encode($out['msg'] ?? null, JSON_UNESCAPED_UNICODE);
+                telegram('sendmessage', [
+                    'chat_id' => $setting['Channel_Report'],
+                    'message_thread_id' => $errorreport,
+                    'text' => "⭕️ ساخت هدیهٔ کانال ناموفق بود\n<blockquote>آیدی کاربر: $uid</blockquote>\n<blockquote>خطا: " . htmlspecialchars((string) $err, ENT_QUOTES, 'UTF-8') . "</blockquote>",
+                    'parse_mode' => 'HTML',
+                ]);
+            }
+            return ['status' => false, 'reason' => 'create_failed'];
+        }
+        $pdo->prepare("UPDATE channel_gift_claim SET status = 'delivered', id_invoice = :i, username = :n WHERE user_id = :u")
+            ->execute([':i' => $randomString, ':n' => $username_ac, ':u' => $uid]);
+
+        $link = rxShouldShowConnectionLink($panel, $out['file_ext'] ?? null)
+            ? rxResolveConnectionLink($panel, $out['subscription_url'], $out['file_ext'] ?? null)
+            : '';
+        $holdLine = ((string) ($panel['on_hold_test'] ?? '') === '1') ? "\n⏱ ۱۰ روز از اولین اتصال شروع می‌شود." : '';
+        // The bot strips raw links from delivery captions and offers them through its own
+        // «🔗 دریافت لینک اشتراک» button, or appends a link line when that button is turned off.
+        $linkLine = rxSubscriptionLinkButtonEnabled($panel)
+            ? "👇 لینک اشتراک را با دکمهٔ «🔗 دریافت لینک اشتراک» بگیرید و در Happ، Hiddify، V2RayNG یا Streisand ایمپورت کنید."
+            : "📥 لینک اشتراک زیر را در Happ، Hiddify، V2RayNG یا Streisand ایمپورت کنید.";
+        // T125 layout (owner-approved): what the user got first, the technical username last.
+        $caption = "🎁 <b>هدیهٔ اعضای کانال فعال شد!</b>\n\n"
+            . "📦 ۱۰ گیگ | ⏳ ۱۰ روز | 📱 بدون محدودیت دستگاه" . $holdLine . "\n\n"
+            . $linkLine . "\n"
+            . "🛍 این سرویس در «سرویس های من» با نام «🎁 هدیه کانال» دیده می‌شود.\n\n"
+            . "شناسه فنی: <code>" . htmlspecialchars((string) $out['username'], ENT_QUOTES, 'UTF-8') . "</code>";
+        $helpKb = json_encode(['inline_keyboard' => [[['text' => '📚 آموزش اتصال', 'callback_data' => 'helpbtn']]]]);
+        sendMessageService($panel, $out['configs'] ?? [], $link, $out['username'], $helpKb, $caption, $randomString, $from_id);
+        sendmessage($from_id, $textbotlang['users']['selectoption'] ?? '👇', $keyboard, 'HTML');
+        step('home', $from_id);
+
+        if (strlen($setting['Channel_Report'] ?? '') > 0) {
+            telegram('sendmessage', [
+                'chat_id' => $setting['Channel_Report'],
+                'message_thread_id' => $reporttest,
+                'text' => "🎁 هدیهٔ اعضای کانال فعال شد\n<blockquote>آیدی کاربر: <code>$uid</code></blockquote>\n<blockquote>نام کاربری: @" . htmlspecialchars((string) $username, ENT_QUOTES, 'UTF-8') . "</blockquote>\n<blockquote>نام کاربری کانفیگ: $username_ac</blockquote>\n<blockquote>۱۰ گیگ | ۱۰ روز | کد پیگیری: $randomString</blockquote>",
+                'parse_mode' => 'HTML',
+            ]);
+        }
+        return ['status' => true, 'invoice' => $randomString, 'username' => $username_ac];
+        } catch (Throwable $e) {
+            // Never leave a user stuck in 'reserved' with no reply (the first T130 deploy did exactly that).
+            try {
+                if ($randomString !== null) {
+                    $pdo->prepare("UPDATE invoice SET Status = 'Unsuccessful' WHERE id_invoice = :i AND Status = 'active'")->execute([':i' => $randomString]);
+                }
+                $release();
+            } catch (Throwable $ignored) {
+            }
+            if (function_exists('rx_log_event')) {
+                rx_log_event('T130_GIFT_FAILED', $e->getMessage(), ['file' => $e->getFile(), 'line' => $e->getLine()]);
+            }
+            sendmessage($from_id, $busyText, $keyboard, 'HTML');
+            return ['status' => false, 'reason' => 'exception'];
+        }
+    }
+}
