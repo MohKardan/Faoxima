@@ -3604,6 +3604,7 @@ $nameconfig";
     $stmt->execute();
     $stmt->close();
     update("invoice", "Status", "active", "id_invoice", $id_invoice);
+    rxRenewalSyncInvoiceName($nameloc['id_invoice'], $nameloc['name_product'], $prodcut['name_product'] ?? '', $extend, $marzban_list_get);
     MiniDiscount::logSale([
         'id_user' => $from_id,
         'id_invoice' => $id_invoice,
@@ -3649,6 +3650,7 @@ $nameconfig";
 ▫️مبلغ تمدید $priceproductformat تومان
 ";
         $textextend = rxRenewalDecorateSuccess($textextend, $extend, (string) $nameloc['username'], (string) ($marzban_list_get['name_panel'] ?? ''));
+        $textextend = rxRenewalSameLinkNote($textextend, $extend, $marzban_list_get);
     }
     sendmessage($from_id, $textextend, $keyboardextendfnished, 'HTML');
     $timejalali = jdate('Y/m/d H:i:s');

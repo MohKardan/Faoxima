@@ -3746,6 +3746,7 @@ $textonebuy
         if ($rxCompletion !== 'completed') {
             return rx_pf_completion_outcome($order_id, $rxToken, $rxCompletion);
         }
+        rxRenewalSyncInvoiceName($nameloc['id_invoice'], $nameloc['name_product'], $prodcut['name_product'] ?? '', $extend, $marzban_list_get);
 
         MiniDiscount::logSale([
             'id_user' => $Balance_id['id'],
@@ -3822,6 +3823,7 @@ $textonebuy
             } elseif (($rxOutcomeText = rxRenewalOutcomeText($extend)) !== '') {
                 $textextend .= "\n" . $rxOutcomeText;
             }
+            $textextend = rxRenewalSameLinkNote($textextend, $extend, $marzban_list_get);
         }
         sendmessage($Balance_id['id'], $textextend, $keyboardextendfnished, 'HTML');
         if (intval($setting['scorestatus']) == 1 and !in_array($Balance_id['id'], $admin_ids)) {
@@ -4622,5 +4624,45 @@ if (!function_exists('rxChannelGiftClaim')) {
             sendmessage($from_id, $busyText, $keyboard, 'HTML');
             return ['status' => false, 'reason' => 'exception'];
         }
+    }
+}
+
+// Faryan local (t88): after a renewal the customer sees the renewed plan and knows the link stays the same.
+if (!function_exists('rxRenewalAppliedNow')) {
+    // A renewal that changed the service right now: not queued for later, not a stock/manual config swap,
+    // not waiting for verification. Only Marzban-style panels keep the same user and subscription link.
+    function rxRenewalAppliedNow($extend, $panel): bool
+    {
+        if (!is_array($extend) || empty($extend['status']) || !empty($extend['queued']) || !empty($extend['stock'])) {
+            return false;
+        }
+        $renewal = $extend['rx_renewal'] ?? null;
+        if (is_array($renewal) && empty($renewal['verified']) && empty($extend['reconciled'])) {
+            return false;
+        }
+        return is_array($panel) && in_array((string) ($panel['type'] ?? ''), ['pasarguard', 'marzban'], true);
+    }
+}
+if (!function_exists('rxRenewalSyncInvoiceName')) {
+    // Upstream renames the invoice only for 'سرویس تست', so a renewed gift kept its gift name in «سرویس‌های من».
+    // Only the name changes: price_product > 0 is what the reports count as a sale.
+    function rxRenewalSyncInvoiceName($idInvoice, $oldName, $newName, $extend, $panel): void
+    {
+        $newName = trim((string) $newName);
+        if ((string) $oldName === 'سرویس تست' || $newName === '' || $newName === (string) $oldName || !rxRenewalAppliedNow($extend, $panel)) {
+            return;
+        }
+        update("invoice", "name_product", $newName, "id_invoice", $idInvoice);
+    }
+}
+if (!function_exists('rxRenewalSameLinkNote')) {
+    // Customers waited for "a new code" after paying for a renewal (GitHub #88). Text: textbot dyn_renewal_same_link_note.
+    function rxRenewalSameLinkNote(string $successText, $extend, $panel): string
+    {
+        if (!rxRenewalAppliedNow($extend, $panel)) {
+            return $successText;
+        }
+        $note = faoxima_textbot_get('dyn_renewal_same_link_note', "\u{200F}🔗 لینک اشتراک شما همان لینک قبلی است و کد یا کانفیگ جدیدی لازم نیست.\n\u{200F}کافی است در برنامه‌تان یک بار «به‌روزرسانی اشتراک» را بزنید.");
+        return rtrim($successText) . "\n\n" . str_replace('\n', "\n", $note);
     }
 }

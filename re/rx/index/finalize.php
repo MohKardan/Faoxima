@@ -380,6 +380,7 @@ if (isset($update['pre_checkout_query'])) {
 ▫️مبلغ تمدید {$prodcut['price_product']} تومان
 ";
         $textextend = rxRenewalDecorateSuccess($textextend, $extend, (string) $usernamePanelExtends, (string) ($marzban_list_get['name_panel'] ?? ''));
+        $textextend = rxRenewalSameLinkNote($textextend, $extend, $marzban_list_get);
     }
     sendmessage($from_id, $textextend, $keyboard, 'HTML');
     if ($marzban_list_get['type'] == "Manualsale") {

@@ -495,6 +495,9 @@ final class ServiceRenewConfirmHandler extends BaseHandler
             update('invoice', 'name_product',  $product['name_product'],  'id_invoice', $invoice['id_invoice']);
             update('invoice', 'price_product', $product['price_product'], 'id_invoice', $invoice['id_invoice']);
         }
+        if (($panel['type'] ?? '') !== 'Manualsale') {
+            rxRenewalSyncInvoiceName($invoice['id_invoice'], $invoice['name_product'] ?? '', $product['name_product'] ?? '', $extend, $panel);
+        }
 
 
         if ((int)($this->setting['scorestatus'] ?? 0) === 1) {
@@ -533,6 +536,7 @@ final class ServiceRenewConfirmHandler extends BaseHandler
         $renewMessage = !empty($extend['queued'])
             ? faoxima_textbot_get('dyn_renewconfirm_queued_success', '✅ سرویس خریداری شده رزرو شد و به محض پایان سرویس فعلی فعال می‌گردد.')
             : rxRenewalDecorateSuccess(faoxima_textbot_get('dyn_renewconfirm_success', '✅ سرویس شما با موفقیت تمدید شد.'), $extend, (string)$invoice['username'], (string)($panel['name_panel'] ?? ''));
+        $renewMessage = rxRenewalSameLinkNote($renewMessage, $extend, $panel);
 
         FaoximaResponse::ok([
             'kind'          => 'done',
