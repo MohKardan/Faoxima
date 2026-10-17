@@ -2086,6 +2086,10 @@ $nameconfig";
             unset($keyboarddate['Extra_time']);
         if ($marzbanstatusextra == "offextra")
             unset($keyboarddate['Extra_volume']);
+        // Faryan local (t110): customers can free a device slot themselves (PasarGuard HWID limit).
+        if (($marzban['type'] ?? '') === 'pasarguard' && intval($DataUserOut['hwid_limit'] ?? 0) > 0) {
+            $keyboarddate['hwid_devices'] = ['text' => '📱 دستگاه‌های من', 'callback_data' => 'hwidlist_'];
+        }
         $_rx_svc_styles = [];
         if (!empty($setting['keyboard_styles_all'])) {
             $_rx_all_kbd_s = json_decode($setting['keyboard_styles_all'], true);
@@ -2793,6 +2797,101 @@ $nameconfig";
     } else {
         sendmessage($from_id, "<code>{$selectedConfig}</code>", $selectedConfigCopyKb, 'HTML');
     }
+} elseif (preg_match('/^hwid(list|del|yes)_([A-Za-z0-9-]+?)(?:_([0-9a-f]{8}))?$/', $datain, $hwm)) {
+    // Faryan local (t110): «📱 دستگاه‌های من» — the customer sees the registered devices and frees one slot.
+    // At most one removal per service per 24 h, so the device limit cannot be rotated around (GitHub #110).
+    $hwInv = select("invoice", "*", "id_invoice", $hwm[2], "select");
+    if (!is_array($hwInv) || (string)($hwInv['id_user'] ?? '') !== (string)$from_id) {
+        sendmessage($from_id, $textbotlang['users']['stateus']['UserNotFound'], null, 'html');
+        return;
+    }
+    $hwPanel = select("marzban_panel", "*", "name_panel", $hwInv['Service_location'], "select");
+    if (!is_array($hwPanel) || ($hwPanel['type'] ?? '') !== 'pasarguard' || !function_exists('pasarguardDeleteUserHwid')) {
+        sendmessage($from_id, $datatextbot['dyn_errors_feature_unavailable_short'] ?? "❌ این قابلیت در دسترس نیست.", null, 'html');
+        return;
+    }
+    $hwBackRow = [['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => "product_{$hwInv['id_invoice']}"]];
+    $hwResp = pasarguardGetUserHwids($hwInv['username'], $hwInv['Service_location']);
+    $hwData = (empty($hwResp['error']) && !empty($hwResp['body'])) ? json_decode((string) $hwResp['body'], true) : null;
+    if (!is_array($hwData)) {
+        sendmessage($from_id, "‏❌ دریافت فهرست دستگاه‌ها ناموفق بود؛ چند دقیقه بعد دوباره امتحان کنید.", json_encode(['inline_keyboard' => [$hwBackRow]]), 'html');
+        return;
+    }
+    $hwList = is_array($hwData['hwids'] ?? null) ? $hwData['hwids'] : [];
+    $hwLabel = function ($h) {
+        $os = trim((string) ($h['device_os'] ?? ''));
+        $model = trim((string) ($h['device_model'] ?? ''));
+        $label = $os !== '' ? ($model !== '' ? "$os ($model)" : $os) : ($model !== '' ? $model : 'دستگاه نامشخص');
+        return htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
+    };
+    $hwSeen = function ($h) {
+        $raw = (string) ($h['last_used_at'] ?? '');
+        if ($raw === '') return '';
+        try {
+            $dt = new DateTime($raw, new DateTimeZone('UTC'));
+            $dt->setTimezone(new DateTimeZone('Asia/Tehran'));
+            return jdate('Y/m/d H:i', $dt->getTimestamp());
+        } catch (Throwable $e) {
+            return '';
+        }
+    };
+    $hwKey = function ($h) { return substr(md5((string) ($h['hwid'] ?? '')), 0, 8); };
+    $hwFind = null;
+    foreach ($hwList as $h) {
+        if (isset($hwm[3]) && $hwm[3] !== '' && $hwKey($h) === $hwm[3]) { $hwFind = $h; break; }
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS faryan_hwid_removal (
+        id INT AUTO_INCREMENT PRIMARY KEY, id_invoice VARCHAR(64) NOT NULL, id_user VARCHAR(32) NOT NULL,
+        device VARCHAR(191) NOT NULL, removed_at INT NOT NULL, KEY k_inv (id_invoice, removed_at)
+    ) DEFAULT CHARSET=utf8mb4");
+    $hwLastStmt = $pdo->prepare("SELECT MAX(removed_at) FROM faryan_hwid_removal WHERE id_invoice = ?");
+    $hwLastStmt->execute([$hwInv['id_invoice']]);
+    $hwLast = (int) $hwLastStmt->fetchColumn();
+    $hwWait = ($hwLast > 0 && time() - $hwLast < 86400) ? $hwLast + 86400 : 0;
+    if ($hwm[1] === 'list') {
+        $hwText = "‏📱 دستگاه‌های ثبت‌شده روی این سرویس: " . count($hwList) . " دستگاه\n";
+        $hwRows = [];
+        foreach ($hwList as $h) {
+            $seen = $hwSeen($h);
+            $hwText .= "\n‏▫️ " . $hwLabel($h) . ($seen !== '' ? " — آخرین استفاده: $seen" : '');
+            $hwRows[] = [['text' => '🗑 حذف ' . html_entity_decode($hwLabel($h), ENT_QUOTES, 'UTF-8'), 'callback_data' => "hwiddel_{$hwInv['id_invoice']}_" . $hwKey($h)]];
+        }
+        if (!$hwList) {
+            $hwText .= "\n‏هنوز دستگاهی روی این سرویس ثبت نشده است.";
+        } else {
+            $hwText .= "\n\n‏اگر یکی از این دستگاه‌ها را دیگر استفاده نمی‌کنید، آن را حذف کنید تا جای دستگاه جدید باز شود. هر ۲۴ ساعت یک دستگاه را می‌توانید حذف کنید.";
+        }
+        $hwRows[] = $hwBackRow;
+        sendmessage($from_id, $hwText, json_encode(['inline_keyboard' => $hwRows]), 'html');
+        return;
+    }
+    if ($hwFind === null) {
+        sendmessage($from_id, "‏این دستگاه دیگر در فهرست نیست.", json_encode(['inline_keyboard' => [[['text' => '📱 دستگاه‌های من', 'callback_data' => "hwidlist_{$hwInv['id_invoice']}"]], $hwBackRow]]), 'html');
+        return;
+    }
+    if ($hwWait > 0) {
+        sendmessage($from_id, "‏⏳ از هر سرویس هر ۲۴ ساعت فقط یک دستگاه را می‌توانید حذف کنید. حذف بعدی از " . jdate('Y/m/d H:i', $hwWait) . " ممکن است.", json_encode(['inline_keyboard' => [$hwBackRow]]), 'html');
+        return;
+    }
+    if ($hwm[1] === 'del') {
+        $hwConfirm = json_encode(['inline_keyboard' => [
+            [['text' => '✅ بله، حذف شود', 'callback_data' => "hwidyes_{$hwInv['id_invoice']}_" . $hwKey($hwFind)]],
+            [['text' => '❌ انصراف', 'callback_data' => "hwidlist_{$hwInv['id_invoice']}"]],
+        ]]);
+        sendmessage($from_id, "‏دستگاه «" . $hwLabel($hwFind) . "» از این سرویس حذف شود؟\n‏بعد از حذف، این دستگاه دیگر به اشتراک وصل نمی‌شود، مگر اینکه دوباره آن را اضافه کنید و جای خالی باشد.", $hwConfirm, 'html');
+        return;
+    }
+    $hwDel = pasarguardDeleteUserHwid($hwInv['username'], $hwInv['Service_location'], (string) $hwFind['hwid']);
+    $hwCode = (int) ($hwDel['status'] ?? 0);
+    if (!empty($hwDel['error']) || !in_array($hwCode, [200, 204], true)) {
+        if (function_exists('rx_log_event')) rx_log_event('T110_HWID_DELETE_FAILED', 'panel refused the HWID delete', ['invoice' => $hwInv['id_invoice'], 'code' => $hwCode]);
+        sendmessage($from_id, "‏❌ حذف دستگاه ناموفق بود؛ چند دقیقه بعد دوباره امتحان کنید یا به پشتیبانی پیام دهید.", json_encode(['inline_keyboard' => [$hwBackRow]]), 'html');
+        return;
+    }
+    $pdo->prepare("INSERT INTO faryan_hwid_removal (id_invoice, id_user, device, removed_at) VALUES (?, ?, ?, ?)")
+        ->execute([$hwInv['id_invoice'], (string) $from_id, mb_substr(html_entity_decode($hwLabel($hwFind), ENT_QUOTES, 'UTF-8'), 0, 190), time()]);
+    sendmessage($from_id, "‏✅ دستگاه «" . $hwLabel($hwFind) . "» حذف شد.\n‏حالا می‌توانید اشتراک را روی دستگاه جدید اضافه کنید؛ در برنامهٔ دستگاه جدید یک بار «به‌روزرسانی اشتراک» را بزنید.", json_encode(['inline_keyboard' => [$hwBackRow]]), 'html');
+    return;
 } elseif (preg_match('/^remnausage_(.+)$/', $datain, $rwm)) {
     $rwId = $rwm[1];
     $rwInv = select("invoice", "*", "id_invoice", $rwId, "select");

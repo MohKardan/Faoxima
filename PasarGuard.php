@@ -335,6 +335,24 @@ function pasarguardGetUserHwids($username_account, $location)
     return pasarguardRequest($panel, 'GET', '/api/user/' . $userData['id'] . '/hwids');
 }
 
+// Faryan local (t110): free one device slot (PasarGuard DELETE /api/user/{id}/hwids/{hwid}).
+function pasarguardDeleteUserHwid($username_account, $location, $hwid)
+{
+    $userResponse = pasarguardGetUser($username_account, $location);
+    if (!empty($userResponse['error'])) {
+        return $userResponse;
+    }
+    $userData = json_decode((string) ($userResponse['body'] ?? ''), true);
+    if (!is_array($userData) || !isset($userData['id'])) {
+        return ["error" => "Unable to resolve numeric user id for HWID delete."];
+    }
+    $panel = findPasarGuardPanelByName($location);
+    if ($panel === null) {
+        return ["error" => "Panel configuration not found for the requested location."];
+    }
+    return pasarguardRequest($panel, 'DELETE', '/api/user/' . $userData['id'] . '/hwids/' . rawurlencode((string) $hwid));
+}
+
 function pasarguardAddUser($location, $data_limit, $username_ac, $timestamp, $note = '', $data_limit_reset = 'no_reset', $name_product = false, $hwid_limit = null)
 {
     $panel = findPasarGuardPanelByName($location);
