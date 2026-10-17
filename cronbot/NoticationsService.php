@@ -135,8 +135,10 @@ class ServiceMonitor
 
         if ($isVolumeWarning) {
             $formattedVolume = formatBytes($remainingVolume);
-            $message = faoxima_render_text(faoxima_textbot_get('dyn_cron_volume_warning_tpl', "با سلام خدمت شما کاربر گرامی 👋\n🚨 از حجم سرویس {username} تنها {volume} باقی مانده است. لطفاً در صورت تمایل برای خرید حجم اضافه و یا تمدید سرویستون از طریق بخش «{purchased_services}» اقدام بفرمایین"), [
+            // Faryan local (t110): name the plan, not only the technical username (GitHub #110).
+            $message = faoxima_render_text(faoxima_textbot_get('dyn_cron_volume_warning_tpl', "با سلام خدمت شما کاربر گرامی 👋\n🚨 از حجم سرویس «{plan}» شما تنها {volume} باقی مانده است (نام سرویس: {username}). لطفاً در صورت تمایل برای خرید حجم اضافه و یا تمدید سرویستون از طریق بخش «{purchased_services}» اقدام بفرمایین"), [
                 'username' => $username,
+                'plan' => $this->planLabel($invoice),
                 'volume' => $formattedVolume,
                 'purchased_services' => $this->text_Purchased_services,
             ]);
@@ -284,9 +286,11 @@ class ServiceMonitor
         $isTimeWarning = $timeRemaining <= $warningThreshold && $timeRemaining > 0;
 
         if ($isTimeWarning) {
-            $message = faoxima_render_text(faoxima_textbot_get('dyn_cron_time_warning_tpl', "با سلام خدمت شما کاربر گرامی 👋\n📌 از مهلت زمانی استفاده از سرویس {username} فقط {days} روز باقی مانده است. لطفاً در صورت تمایل برای تمدید این سرویس، از طریق بخش «{purchased_services}» اقدام بفرمایین. با تشکر از همراهی شما"), [
+            // Faryan local (t110): name the plan, and say "less than 1" instead of "0" days (GitHub #110).
+            $message = faoxima_render_text(faoxima_textbot_get('dyn_cron_time_warning_tpl', "با سلام خدمت شما کاربر گرامی 👋\n📌 از مهلت زمانی سرویس «{plan}» شما فقط {days} روز باقی مانده است (نام سرویس: {username}). لطفاً در صورت تمایل برای تمدید این سرویس، از طریق بخش «{purchased_services}» اقدام بفرمایین. با تشکر از همراهی شما"), [
                 'username' => $username,
-                'days' => $daysRemaining,
+                'plan' => $this->planLabel($invoice),
+                'days' => $daysRemaining > 0 ? $daysRemaining : 'کمتر از ۱',
                 'purchased_services' => $this->text_Purchased_services,
             ]);
             $reportMessage = faoxima_render_text(faoxima_textbot_get('dyn_cron_time_warning_report_tpl', "📌 اطلاعیه کرون زمان\n\n<blockquote>نام کاربری سرویس :‌ <code>{username}</code></blockquote>\n<blockquote>وضعیت سرویس : {status}</blockquote>\n<blockquote>تعداد روز باقی مانده ‌:‌{days}</blockquote>"), [
@@ -321,6 +325,13 @@ class ServiceMonitor
                 ],
             ]
         ]);
+    }
+
+    // Faryan local (t110): the plan as the customer bought it (invoice.name_product), safe for HTML messages.
+    private function planLabel($invoice)
+    {
+        $name = trim((string) ($invoice['name_product'] ?? ''));
+        return htmlspecialchars($name !== '' ? $name : (string) ($invoice['username'] ?? ''), ENT_QUOTES, 'UTF-8');
     }
 
     private function sendReportNotification($reportMessage)
